@@ -1,0 +1,37 @@
+{
+  "name": "ai-blame",
+  "version": "0.1.0",
+  "description": "git blame, extended with AI-agent provenance. Correlates each line of a file to the commit that last touched it, and to that commit's Ai-Agent/Ai-Model/Ai-Session trailers.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "ai-blame": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pretest": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "dev": "node -r tsx/cjs src/cli.ts"
+  },
+  "keywords": [
+    "git",
+    "git-blame",
+    "ai",
+    "provenance",
+    "cli"
+  ],
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.5.4",
+    "vitest": "^5.0.1"
+  }
+}

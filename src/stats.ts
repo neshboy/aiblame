@@ -1,5 +1,46 @@
-import { blameFile, listTrackedFiles } from "./blame";
+import * as os from "node:os";
+import { BlameLine, blameFileAsync, listTrackedFiles } from "./blame";
 import { TrailerCache } from "./trailers";
+
+/**
+ * How many `git blame` child processes to have in flight at once. Bounded
+ * (rather than one-per-file via Promise.all) so a repo with thousands of
+ * files doesn't try to spawn thousands of concurrent git processes.
+ */
+const BLAME_CONCURRENCY = Math.max(2, os.cpus().length);
+
+interface BlameResult {
+  file: string;
+  blamed: BlameLine[] | null; // null means the file couldn't be blamed (skip).
+}
+
+/** Blame `files` with at most `concurrency` `git blame` processes in flight. */
+async function blameFilesConcurrently(
+  cwd: string,
+  files: string[],
+  concurrency: number,
+): Promise<BlameResult[]> {
+  const results: BlameResult[] = new Array(files.length);
+  let next = 0;
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const index = next++;
+      if (index >= files.length) return;
+      const file = files[index];
+      try {
+        results[index] = { file, blamed: await blameFileAsync(cwd, file) };
+      } catch {
+        // Binary files, symlinks, submodules, etc. can't be blamed - skip.
+        results[index] = { file, blamed: null };
+      }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, files.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
 
 export interface AgentBreakdownEntry {
   key: string; // "claude-code/claude-sonnet-5" or "claude-code"
@@ -22,7 +63,7 @@ export interface RepoStats {
  * each one for real, and tally AI-attributed vs. human-attributed lines
  * repo-wide based on each blamed commit's real trailers.
  */
-export function computeStats(cwd: string, pathspec?: string): RepoStats {
+export async function computeStats(cwd: string, pathspec?: string): Promise<RepoStats> {
   const files = listTrackedFiles(cwd, pathspec);
   const cache = new TrailerCache(cwd);
 
@@ -32,18 +73,18 @@ export function computeStats(cwd: string, pathspec?: string): RepoStats {
   let filesSkipped = 0;
   const byAgent = new Map<string, number>();
 
-  for (const file of files) {
-    let blamed;
-    try {
-      blamed = blameFile(cwd, file);
-    } catch {
-      // Binary files, symlinks, submodules, etc. can't be blamed - skip.
+  const blameResults = await blameFilesConcurrently(cwd, files, BLAME_CONCURRENCY);
+
+  for (const { blamed } of blameResults) {
+    if (blamed === null) {
       filesSkipped++;
       continue;
     }
     filesScanned++;
     for (const line of blamed) {
       totalLines++;
+      // TrailerCache does its own synchronous git calls, but commit
+      // lookups are memoized per sha, so repeated shas across files are free.
       const trailers = cache.get(line.sha);
       if (trailers.agent) {
         aiLines++;

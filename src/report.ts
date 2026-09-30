@@ -1,5 +1,5 @@
 import { blameFile } from "./blame";
-import { TrailerCache, CommitTrailers } from "./trailers";
+import { TrailerCache, CommitTrailers, UNCOMMITTED_SHA } from "./trailers";
 
 export interface ReportLine {
   lineNumber: number;
@@ -13,8 +13,11 @@ export interface ReportLine {
   label: string;
 }
 
-/** Human-readable `[agent/model]` or `[human: Name]` attribution label. */
-export function formatLabel(trailers: CommitTrailers, author: string): string {
+/** Human-readable `[agent/model]`, `[human: Name]` or `[uncommitted]` attribution label. */
+export function formatLabel(trailers: CommitTrailers, author: string, sha?: string): string {
+  if (sha === UNCOMMITTED_SHA) {
+    return "[uncommitted]";
+  }
   if (trailers.agent) {
     return trailers.model ? `[${trailers.agent}/${trailers.model}]` : `[${trailers.agent}]`;
   }
@@ -39,7 +42,7 @@ export function buildReport(cwd: string, filePath: string, cache = new TrailerCa
       session: trailers.session,
       author: line.author,
       content: line.content,
-      label: formatLabel(trailers, line.author),
+      label: formatLabel(trailers, line.author, line.sha),
     };
   });
 }

@@ -28,8 +28,8 @@ function runReport(cwd: string, filePath: string, out: NodeJS.WriteStream): numb
   return 0;
 }
 
-function runStats(cwd: string, path: string | undefined, out: NodeJS.WriteStream): number {
-  const stats = computeStats(cwd, path);
+async function runStats(cwd: string, path: string | undefined, out: NodeJS.WriteStream): Promise<number> {
+  const stats = await computeStats(cwd, path);
   out.write(formatStats(stats) + "\n");
   return 0;
 }
@@ -88,7 +88,7 @@ function runCommit(cwd: string, args: string[], out: NodeJS.WriteStream): number
   return 0;
 }
 
-export function main(argv: string[], cwd: string = process.cwd(), out: NodeJS.WriteStream = process.stdout, err: NodeJS.WriteStream = process.stderr): number {
+export async function main(argv: string[], cwd: string = process.cwd(), out: NodeJS.WriteStream = process.stdout, err: NodeJS.WriteStream = process.stderr): Promise<number> {
   const [command, ...rest] = argv;
 
   if (!command || command === "-h" || command === "--help") {
@@ -102,7 +102,7 @@ export function main(argv: string[], cwd: string = process.cwd(), out: NodeJS.Wr
 
   try {
     if (command === "stats") {
-      return runStats(cwd, rest[0], out);
+      return await runStats(cwd, rest[0], out);
     }
     if (command === "commit") {
       return runCommit(cwd, rest, out);
@@ -116,5 +116,11 @@ export function main(argv: string[], cwd: string = process.cwd(), out: NodeJS.Wr
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (e) => {
+      process.stderr.write(`ai-blame: ${e?.message ?? e}\n`);
+      process.exit(1);
+    },
+  );
 }

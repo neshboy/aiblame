@@ -85,7 +85,7 @@ describe("ai-blame", () => {
     expect(report[3]).toMatchObject({ content: "delta", isAi: true, agent: "claude-code" });
   });
 
-  it("computes a correct repo-wide AI vs. human line percentage", () => {
+  it("computes a correct repo-wide AI vs. human line percentage", async () => {
     fs.writeFileSync(path.join(repo, "a.txt"), "1\n2\n3\n4\n");
     git(repo, ["add", "a.txt"]);
     git(repo, ["commit", "-q", "-m", "human file"]);
@@ -94,7 +94,7 @@ describe("ai-blame", () => {
     git(repo, ["add", "b.txt"]);
     makeCommit(repo, { message: "ai file", agent: "claude-code", model: "claude-sonnet-5" });
 
-    const stats = computeStats(repo);
+    const stats = await computeStats(repo);
     expect(stats.totalLines).toBe(6);
     expect(stats.aiLines).toBe(2);
     expect(stats.humanLines).toBe(4);
@@ -169,5 +169,45 @@ describe("ai-blame", () => {
     expect(() =>
       execFileSync("node", [cli, "commit", "-m", "no agent"], { cwd: repo, encoding: "utf8", stdio: "pipe" }),
     ).toThrow();
+  }, 20000);
+
+  it("handles a dirty working tree instead of crashing on git's all-zero uncommitted sha", () => {
+    fs.writeFileSync(path.join(repo, "file.txt"), "alpha\nbeta\n");
+    git(repo, ["add", "file.txt"]);
+    git(repo, ["commit", "-q", "-m", "human commit"]);
+
+    // Edit without committing - git blame reports these lines under the
+    // all-zero "Not Committed Yet" pseudo-sha, which has no real commit
+    // object behind it.
+    fs.writeFileSync(path.join(repo, "file.txt"), "alpha\nBETA-uncommitted\n");
+
+    const report = buildReport(repo, "file.txt");
+    expect(report[0]).toMatchObject({ content: "alpha", isAi: false, label: "[human: Jane Doe]" });
+    expect(report[1]).toMatchObject({ content: "BETA-uncommitted", isAi: false, label: "[uncommitted]" });
+  });
+
+  it("does not crash `stats` on a dirty working tree either", async () => {
+    fs.writeFileSync(path.join(repo, "file.txt"), "alpha\nbeta\n");
+    git(repo, ["add", "file.txt"]);
+    git(repo, ["commit", "-q", "-m", "human commit"]);
+    fs.writeFileSync(path.join(repo, "file.txt"), "alpha\nBETA-uncommitted\n");
+
+    const stats = await computeStats(repo);
+    expect(stats.totalLines).toBe(2);
+    expect(stats.aiLines).toBe(0);
+  });
+
+  it("works end-to-end through the built CLI binary on a dirty working tree", () => {
+    const cli = path.join(__dirname, "..", "dist", "cli.js");
+    fs.writeFileSync(path.join(repo, "file.txt"), "alpha\n");
+    git(repo, ["add", "file.txt"]);
+    git(repo, ["commit", "-q", "-m", "human commit"]);
+    fs.writeFileSync(path.join(repo, "file.txt"), "alpha-uncommitted\n");
+
+    const reportOut = execFileSync("node", [cli, "file.txt"], { cwd: repo, encoding: "utf8" });
+    expect(reportOut).toMatch(/\[uncommitted]\s+alpha-uncommitted/);
+
+    const statsOut = execFileSync("node", [cli, "stats"], { cwd: repo, encoding: "utf8" });
+    expect(statsOut).toContain("Total lines:   1");
   }, 20000);
 });

@@ -25,6 +25,14 @@ export interface CommitTrailers {
 const EMPTY_TRAILERS: CommitTrailers = { agent: null, model: null, session: null };
 
 /**
+ * The all-zero sha `git blame` uses as a placeholder for lines in the
+ * working tree that haven't been committed yet (author "Not Committed
+ * Yet"). There is no real commit object for this sha, so `git log`/`git
+ * interpret-trailers` must never be asked to resolve it.
+ */
+export const UNCOMMITTED_SHA = "0000000000000000000000000000000000000000";
+
+/**
  * Extract AI Blame trailers from a raw commit message body.
  *
  * This shells out to the *real* `git interpret-trailers --parse` (a
@@ -68,6 +76,12 @@ export class TrailerCache {
   get(sha: string): CommitTrailers {
     const cached = this.cache.get(sha);
     if (cached) return cached;
+    if (sha === UNCOMMITTED_SHA) {
+      // No real commit object exists for uncommitted working-tree lines;
+      // `git log`/`git interpret-trailers` would fail on this sha.
+      this.cache.set(sha, EMPTY_TRAILERS);
+      return EMPTY_TRAILERS;
+    }
     const message = commitMessage(this.cwd, sha);
     const trailers = parseTrailersFromMessage(this.cwd, message);
     this.cache.set(sha, trailers);

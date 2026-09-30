@@ -1,4 +1,4 @@
-import { git } from "./git";
+import { git, gitAsync } from "./git";
 
 export interface BlameLine {
   /** 1-based line number in the current version of the file. */
@@ -27,6 +27,21 @@ const HEADER_RE = /^([0-9a-f]{40}) (\d+) (\d+)(?: (\d+))?$/;
  */
 export function blameFile(cwd: string, filePath: string): BlameLine[] {
   const output = git(["blame", "--porcelain", "--", filePath], { cwd });
+  return parseBlamePorcelain(output);
+}
+
+/**
+ * Async twin of `blameFile`, backed by `gitAsync` so callers (e.g.
+ * `computeStats`) can blame many files concurrently instead of paying each
+ * blame's process-spawn latency one at a time.
+ */
+export async function blameFileAsync(cwd: string, filePath: string): Promise<BlameLine[]> {
+  const output = await gitAsync(["blame", "--porcelain", "--", filePath], { cwd });
+  return parseBlamePorcelain(output);
+}
+
+/** Parse the output of `git blame --porcelain` into one entry per line. */
+function parseBlamePorcelain(output: string): BlameLine[] {
   const lines = output.split("\n");
 
   const authorBySha = new Map<string, string>();

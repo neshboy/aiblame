@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 
 /**
  * Thin, safe wrapper around the real `git` binary.
@@ -38,6 +38,36 @@ export function git(args: string[], options: GitOptions): string {
     const stderr = err?.stderr?.toString?.() ?? String(err?.message ?? err);
     throw new GitError(`git ${args.join(" ")} failed: ${stderr}`, args, stderr);
   }
+}
+
+/**
+ * Async twin of `git()`, for call sites that blame/inspect many objects and
+ * want to run several `git` child processes concurrently instead of paying
+ * each spawn's latency serially (see `computeStats`).
+ *
+ * `execFile`'s callback/promise form has no `input` option (that's a
+ * `*Sync`-only convenience), so stdin is written and closed by hand when
+ * `options.input` is provided.
+ */
+export function gitAsync(args: string[], options: GitOptions): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      "git",
+      args,
+      { cwd: options.cwd, encoding: "utf8", maxBuffer: 1024 * 1024 * 256 },
+      (err, stdout, stderr) => {
+        if (err) {
+          const stderrText = stderr?.toString?.() ?? String(err?.message ?? err);
+          reject(new GitError(`git ${args.join(" ")} failed: ${stderrText}`, args, stderrText));
+          return;
+        }
+        resolve(stdout.toString());
+      },
+    );
+    if (options.input !== undefined) {
+      child.stdin?.end(options.input);
+    }
+  });
 }
 
 /** Run `git <args>`, returning null instead of throwing if git exits non-zero. */
